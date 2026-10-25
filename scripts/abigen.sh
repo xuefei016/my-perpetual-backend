@@ -24,7 +24,7 @@ abigen --abi abi/Dealer.abi --pkg dealer --type Dealer \
 jq '.abi' "$OUT/Perpetual.sol/Perpetual.json" > abi/Perpetual.abi
 mkdir -p internal/chain/bindings/perpetual
 abigen --abi abi/Perpetual.abi --pkg perpetual --type Perpetual \
-       --out internal/chain/bindings/perpetual/Perpetual.go
+       --out internal/chain/bindings/perpetual/perpetual.go
 
 # ---- ERC20（用 MockERC20 的 ABI）----
 jq '.abi' "$OUT/MockERC20.sol/MockERC20.json" > abi/ERC20.abi
