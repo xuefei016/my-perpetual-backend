@@ -1,6 +1,11 @@
 package chain
 
-import "math/big"
+import (
+	"fmt"
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
+)
 
 // EncodeTradeData 生成 Perpetual.trade 的参数，必须能被 approveTrade 里的
 // abi.decode(tradeData, (Types.Order[], bytes[], uint256[])) 解开。
@@ -10,5 +15,42 @@ import "math/big"
 //
 // 三个切片长度必须相等且 >= 2。
 func EncodeTradeData(orders []Order, sigs [][]byte, amounts []*big.Int) ([]byte, error) {
-	panic("TODO(D8): EncodeTradeData")
+	if len(orders) < 2 || len(orders) != len(sigs) || len(orders) != len(amounts) {
+		return nil, fmt.Errorf("need >= 2 orders and equal lengths, got orders=%d sigs=%d amounts=%d",
+			len(orders), len(sigs), len(amounts))
+	}
+
+	for i, a := range amounts {
+		if a == nil || a.Sign() <= 0 {
+			return nil, fmt.Errorf("amounts[%d] must be > 0, got %v", i, a)
+		}
+	}
+
+	orderListType, err := abi.NewType("tuple[]", "", []abi.ArgumentMarshaling{
+		{Name: "perp", Type: "address"},
+		{Name: "signer", Type: "address"},
+		{Name: "paperAmount", Type: "int128"},
+		{Name: "creditAmount", Type: "int128"},
+		{Name: "info", Type: "bytes32"},
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	sigListType, err := abi.NewType("bytes[]", "", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	paperListType, err := abi.NewType("uint256[]", "", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return abi.Arguments{
+		{Type: orderListType},
+		{Type: sigListType},
+		{Type: paperListType},
+	}.Pack(orders, sigs, amounts)
 }

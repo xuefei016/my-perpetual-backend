@@ -1,0 +1,109 @@
+package chain
+
+import (
+	"bytes"
+	"math/big"
+	"testing"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+)
+
+// 期望值由 cast abi-encode 生成（和合约 abi.decode 用同一套规则）：
+//
+//	cast abi-encode "f((address,address,int128,int128,bytes32)[],bytes[],uint256[])" "[(…),(…)]" "[sig…]" "[amount…]"
+//
+// info 用两种：I1 maker 费率为负（高 8 字节全 ff）、I2 普通正数，确保 bytes32 原样进编码。
+// 签名用 aa…1b / bb…1c / cc…1b 这种一眼能在 hex 里认出来的假数据（编码不验签）。
+var (
+	tdBTC   = common.HexToAddress("0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e")
+	tdAlice = common.HexToAddress("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65")
+	tdBob   = common.HexToAddress("0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc")
+	tdCarol = common.HexToAddress("0x976EA74026E726554dB657fA54763abd0C3a0aa9")
+	tdI1    = [32]byte(hexutil.MustDecode("0xffffffffffffffff000000000000000100000000000000000000000000000007"))
+	tdI2    = [32]byte(hexutil.MustDecode("0x0000000000000002000000000000000000000000000000000000000000000008"))
+	tdS1    = hexutil.MustDecode("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1b")
+	tdS2    = hexutil.MustDecode("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1c")
+	tdS3    = hexutil.MustDecode("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc1b")
+)
+
+func bi(s string) *big.Int {
+	v, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		panic(s)
+	}
+	return v
+}
+
+func TestEncodeTradeDataMatchesCast(t *testing.T) {
+	cases := []struct {
+		name    string
+		orders  []Order
+		sigs    [][]byte
+		amounts []*big.Int
+		want    string
+	}{
+		{
+			// D8 贯穿例子：alice 买 0.1 @26000 吃 bob 卖 1 张 @26000
+			name: "1 taker + 1 maker",
+			orders: []Order{
+				{tdBTC, tdAlice, bi("100000000000000000"), bi("-2600000000"), tdI1},
+				{tdBTC, tdBob, bi("-1000000000000000000"), bi("26000000000"), tdI2},
+			},
+			sigs:    [][]byte{tdS1, tdS2},
+			amounts: []*big.Int{bi("100000000000000000"), bi("100000000000000000")},
+			want:    "0x000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001c000000000000000000000000000000000000000000000000000000000000003200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e00000000000000000000000015d34aaf54267db7d7c367839aaf71a00a2c6a65000000000000000000000000000000000000000000000000016345785d8a0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff65072600ffffffffffffffff000000000000000100000000000000000000000000000007000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e0000000000000000000000009965507d1a55bcc2695c58ba16fb37d819b0a4dcfffffffffffffffffffffffffffffffffffffffffffffffff21f494c589c0000000000000000000000000000000000000000000000000000000000060db8840000000000000000020000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000041aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000016345785d8a0000000000000000000000000000000000000000000000000000016345785d8a0000",
+		},
+		{
+			// carol 卖 1.5 @25000 吃 alice 买 1 @25000 + bob 买 2 @25000 中的 0.5（maker 按地址升序）
+			name: "1 taker + 2 makers",
+			orders: []Order{
+				{tdBTC, tdCarol, bi("-1500000000000000000"), bi("37500000000"), tdI2},
+				{tdBTC, tdAlice, bi("1000000000000000000"), bi("-25000000000"), tdI1},
+				{tdBTC, tdBob, bi("2000000000000000000"), bi("-50000000000"), tdI2},
+			},
+			sigs:    [][]byte{tdS3, tdS1, tdS2},
+			amounts: []*big.Int{bi("1500000000000000000"), bi("1000000000000000000"), bi("500000000000000000")},
+			want:    "0x0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000026000000000000000000000000000000000000000000000000000000000000004600000000000000000000000000000000000000000000000000000000000000003000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e000000000000000000000000976ea74026e726554db657fa54763abd0c3a0aa9ffffffffffffffffffffffffffffffffffffffffffffffffeb2eedf284ea000000000000000000000000000000000000000000000000000000000008bb2c97000000000000000002000000000000000000000000000000000000000000000008000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e00000000000000000000000015d34aaf54267db7d7c367839aaf71a00a2c6a650000000000000000000000000000000000000000000000000de0b6b3a7640000fffffffffffffffffffffffffffffffffffffffffffffffffffffffa2de24600ffffffffffffffff000000000000000100000000000000000000000000000007000000000000000000000000b7f8bc63bbcad18155201308c8f3540b07f84f5e0000000000000000000000009965507d1a55bcc2695c58ba16fb37d819b0a4dc0000000000000000000000000000000000000000000000001bc16d674ec80000fffffffffffffffffffffffffffffffffffffffffffffffffffffff45bc48c0000000000000000020000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000e000000000000000000000000000000000000000000000000000000000000001600000000000000000000000000000000000000000000000000000000000000041cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc1b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000014d1120d7b1600000000000000000000000000000000000000000000000000000de0b6b3a764000000000000000000000000000000000000000000000000000006f05b59d3b20000",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := EncodeTradeData(tc.orders, tc.sigs, tc.amounts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := hexutil.MustDecode(tc.want)
+			if !bytes.Equal(got, want) {
+				t.Fatalf("encoding mismatch\n got  %x\n want %x", got, want)
+			}
+		})
+	}
+}
+
+func TestEncodeTradeDataRejects(t *testing.T) {
+	o := Order{tdBTC, tdAlice, bi("100000000000000000"), bi("-2600000000"), tdI1}
+	m := Order{tdBTC, tdBob, bi("-1000000000000000000"), bi("26000000000"), tdI2}
+	amt := bi("100000000000000000")
+	cases := []struct {
+		name    string
+		orders  []Order
+		sigs    [][]byte
+		amounts []*big.Int
+	}{
+		{"nil everything", nil, nil, nil},
+		{"only taker", []Order{o}, [][]byte{tdS1}, []*big.Int{amt}},
+		{"sigs short", []Order{o, m}, [][]byte{tdS1}, []*big.Int{amt, amt}},
+		{"amounts short", []Order{o, m}, [][]byte{tdS1, tdS2}, []*big.Int{amt}},
+		{"nil amount", []Order{o, m}, [][]byte{tdS1, tdS2}, []*big.Int{amt, nil}},
+		{"negative amount", []Order{o, m}, [][]byte{tdS1, tdS2}, []*big.Int{amt, big.NewInt(-1)}},
+		{"zero amount", []Order{o, m}, [][]byte{tdS1, tdS2}, []*big.Int{amt, big.NewInt(0)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := EncodeTradeData(tc.orders, tc.sigs, tc.amounts); err == nil {
+				t.Fatal("want error, got nil")
+			}
+		})
+	}
+}

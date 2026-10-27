@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"math/big"
+	"slices"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -392,5 +393,48 @@ func TestFillRejects(t *testing.T) {
 	}
 	if o, _ := b.Get("B"); o.Remaining.Cmp(e17(1)) != 0 {
 		t.Errorf("被拒绝的 Fill 改了 B：%s", o.Remaining)
+	}
+}
+
+func iterIDs(b *OrderBook, side Side, stopAfter int) []string {
+	var ids []string
+	for o := range b.Iter(side) {
+		ids = append(ids, o.ID)
+		if len(ids) == stopAfter {
+			break
+		}
+	}
+	return ids
+}
+
+func TestIter(t *testing.T) {
+	b := fiveOrderBook(t)
+	// asks: [26000: B C] [26100: A]；bids: [25950: E] [25900: D]
+	cases := []struct {
+		name      string
+		side      Side
+		stopAfter int
+		want      []string
+	}{
+		{"卖侧全部：价格低优先，同价 B 先于 C", Sell, 0, []string{"B", "C", "A"}},
+		{"买侧全部：价格高优先", Buy, 0, []string{"E", "D"}},
+		{"同一档中间 break", Sell, 1, []string{"B"}},
+		{"跨档前 break", Sell, 2, []string{"B", "C"}},
+		{"跨档后 break", Sell, 3, []string{"B", "C", "A"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := iterIDs(b, tc.side, tc.stopAfter)
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("Iter = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	// 只读：遍历完簿不变
+	if b.Len() != 5 || b.Best(Sell).ID != "B" {
+		t.Fatal("Iter 改了订单簿")
+	}
+	if got := iterIDs(NewOrderBook(testPerp), Sell, 0); got != nil {
+		t.Fatalf("空簿 Iter = %v, want 空", got)
 	}
 }

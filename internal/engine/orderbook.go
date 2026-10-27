@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"iter"
 	"math/big"
 	"slices"
 	"sort"
@@ -205,4 +206,20 @@ func (b *OrderBook) remove(o *BookOrder) {
 	}
 	delete(b.index, o.ID)
 
+}
+
+func (b *OrderBook) Iter(side Side) iter.Seq[*BookOrder] {
+	level := b.bids
+	if side == Sell {
+		level = b.asks
+	}
+	return func(yield func(order *BookOrder) bool) {
+		for _, bookOrder := range level {
+			for _, order := range bookOrder.orders {
+				if !yield(order) {
+					return
+				}
+			}
+		}
+	}
 }
