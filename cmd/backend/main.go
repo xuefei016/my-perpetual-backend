@@ -53,7 +53,7 @@ func main() {
 	}
 
 	eng := engine.New(chain.NewTradeSender(c, orderSender), perps...)
-	funding := keeper.NewFundingKeeper(c, keeperAuth, perps, cfg.FundingInterval)
+	funding := keeper.NewFundingKeeper(c, keeperAuth, perps, eng, cfg.FundingInterval)
 	liquidator := keeper.NewLiquidator(c, liquidatorAuth, perps[0], eng, cfg.LiquidationInterval)
 
 	// 协程1: 用于更新资金费率

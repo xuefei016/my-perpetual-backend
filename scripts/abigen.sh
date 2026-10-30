@@ -32,4 +32,10 @@ mkdir -p internal/chain/bindings/erc20
 abigen --abi abi/ERC20.abi --pkg erc20 --type ERC20 \
        --out internal/chain/bindings/erc20/erc20.go
 
+# ---- IPriceSource（标记价接口，资金费 keeper / 链下 IM 预检读价用）----
+jq '.abi' "$OUT/IPriceSource.sol/IPriceSource.json" > abi/PriceSource.abi
+mkdir -p internal/chain/bindings/pricesource
+abigen --abi abi/PriceSource.abi --pkg pricesource --type PriceSource \
+       --out internal/chain/bindings/pricesource/pricesource.go
+
 echo "abigen done"

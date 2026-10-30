@@ -3,6 +3,9 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -46,10 +49,58 @@ func Default() Config {
 	}
 }
 
-// Load 在 Default 基础上用环境变量覆盖，并校验必填项。
-//
-// TODO(D9): 读 ORDER_SENDER_PK / KEEPER_PK / LIQUIDATOR_PK（必填，缺了返回错误），
-// 以及可选的 RPC_URL / HTTP_ADDR。现在直接返回 Default()，私钥全空。
+// Load 在 Default 基础上用环境变量覆盖：ORDER_SENDER_PK / KEEPER_PK / LIQUIDATOR_PK 必填，
+// 缺了一次性列出全部缺失项；RPC_URL / HTTP_ADDR / FUNDING_INTERVAL / LIQUIDATION_INTERVAL 可选，非空才覆盖默认值。
 func Load() (Config, error) {
-	return Default(), nil
+	cfg := Default()
+	orderSenderPk := strings.TrimSpace(os.Getenv("ORDER_SENDER_PK"))
+	keeperPk := strings.TrimSpace(os.Getenv("KEEPER_PK"))
+	liquidatorPk := strings.TrimSpace(os.Getenv("LIQUIDATOR_PK"))
+	var missing []string
+	if orderSenderPk == "" {
+		missing = append(missing, "ORDER_SENDER_PK")
+	}
+	if keeperPk == "" {
+		missing = append(missing, "KEEPER_PK")
+	}
+	if liquidatorPk == "" {
+		missing = append(missing, "LIQUIDATOR_PK")
+	}
+	if len(missing) > 0 {
+		return Config{}, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	}
+
+	cfg.OrderSenderKey = orderSenderPk
+	cfg.KeeperKey = keeperPk
+	cfg.LiquidatorKey = liquidatorPk
+
+	rpcUrl := os.Getenv("RPC_URL")
+	if rpcUrl != "" {
+		cfg.RPCURL = rpcUrl
+	}
+	httpAddr := os.Getenv("HTTP_ADDR")
+	if httpAddr != "" {
+		cfg.HTTPAddr = httpAddr
+	}
+
+	// 两个间隔可选，格式同 time.ParseDuration（例 "15s"）；端到端演示时调短
+	for _, d := range []struct {
+		env string
+		dst *time.Duration
+	}{
+		{"FUNDING_INTERVAL", &cfg.FundingInterval},
+		{"LIQUIDATION_INTERVAL", &cfg.LiquidationInterval},
+	} {
+		raw := os.Getenv(d.env)
+		if raw == "" {
+			continue
+		}
+		v, err := time.ParseDuration(raw)
+		if err != nil || v <= 0 {
+			return Config{}, fmt.Errorf("invalid %s %q: must be a positive duration like 15s", d.env, raw)
+		}
+		*d.dst = v
+	}
+
+	return cfg, nil
 }

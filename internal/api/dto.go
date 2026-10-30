@@ -48,3 +48,14 @@ type PositionResponse struct {
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
+
+type CancelOrderRequest struct {
+	Perp      string `json:"perp"`
+	Deadline  int64  `json:"deadline"`
+	Signature string `json:"signature"`
+}
+
+type CancelOrderResponse struct {
+	OrderID   string `json:"orderId"`
+	Remaining string `json:"remaining"`
+}

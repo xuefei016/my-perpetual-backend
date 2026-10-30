@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/xuefei016/my-perpetual-backend/internal/api"
 	"github.com/xuefei016/my-perpetual-backend/internal/chain"
 	"github.com/xuefei016/my-perpetual-backend/internal/config"
 )
@@ -115,6 +117,17 @@ func main() {
 	fmt.Printf("ORDERS='[%s,%s]'\n", tuple(aliceOrder), tuple(bobOrder))
 	fmt.Printf("SIGS='[%s,%s]'\n", hexutil.Encode(aliceSig), hexutil.Encode(bobSig))
 	fmt.Printf("AMOUNTS='[%s,%s]'\n", new(big.Int).Abs(aliceOrder.PaperAmount), new(big.Int).Abs(bobOrder.PaperAmount))
+
+	aliceJSON, err := json.MarshalIndent(orderRequest(aliceOrder, aliceSig), "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	bobJSON, err := json.MarshalIndent(orderRequest(bobOrder, bobSig), "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("ALICE_ORDER_JSON=%s\n", aliceJSON)
+	fmt.Printf("BOB_ORDER_JSON=%s\n", bobJSON)
 }
 
 func tuple(o chain.Order) string {
@@ -124,4 +137,15 @@ func tuple(o chain.Order) string {
 		o.PaperAmount.String(),
 		o.CreditAmount.String(),
 		hexutil.Encode(o.Info[:]))
+}
+
+func orderRequest(o chain.Order, sig []byte) api.PlaceOrderRequest {
+	return api.PlaceOrderRequest{
+		Perp:         o.Perp.Hex(),
+		Signer:       o.Signer.Hex(),
+		PaperAmount:  o.PaperAmount.String(),
+		CreditAmount: o.CreditAmount.String(),
+		Info:         hexutil.Encode(o.Info[:]),
+		Signature:    hexutil.Encode(sig),
+	}
 }

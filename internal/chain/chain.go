@@ -14,10 +14,12 @@ import (
 	"github.com/xuefei016/my-perpetual-backend/internal/chain/bindings/dealer"
 	"github.com/xuefei016/my-perpetual-backend/internal/chain/bindings/erc20"
 	"github.com/xuefei016/my-perpetual-backend/internal/chain/bindings/perpetual"
+	"github.com/xuefei016/my-perpetual-backend/internal/chain/bindings/pricesource"
 )
 
 type Chain struct {
 	Client  *ethclient.Client
+	Backend bind.ContractBackend // 绑定任意合约用（= Client；单测里换成假后端）
 	ChainId *big.Int
 	Dealer  *dealer.Dealer
 	BTC     *perpetual.Perpetual
@@ -49,6 +51,7 @@ func New(ctx context.Context, rpcURL string, dealerAddr, btcAddr, usdcAddr commo
 	}
 	return &Chain{
 		Client:  client,
+		Backend: client,
 		ChainId: chainId,
 		Dealer:  deal,
 		BTC:     btc,
@@ -82,4 +85,21 @@ func WaitSuccess(ctx context.Context, c *Chain, tx *types.Transaction) (*types.R
 		return nil, fmt.Errorf("wait tx %s receipt status: %d", receipt.TxHash.Hex(), receipt.Status)
 	}
 	return receipt, nil
+}
+
+// MarkPrice 读 perp 市场的标记价（USDC 6 位 / 1 张）：先从 Dealer 风控参数拿价格源地址，再调它的 getMarkPrice。
+func (c *Chain) MarkPrice(opts *bind.CallOpts, perp common.Address) (*big.Int, error) {
+	rp, err := c.Dealer.GetRiskParams(opts, perp)
+	if err != nil {
+		return nil, fmt.Errorf("get risk params: %w", err)
+	}
+	ps, err := pricesource.NewPriceSource(rp.MarkPriceSource, c.Backend)
+	if err != nil {
+		return nil, fmt.Errorf("bind price source: %w", err)
+	}
+	mark, err := ps.GetMarkPrice(opts)
+	if err != nil {
+		return nil, fmt.Errorf("get mark price: %w", err)
+	}
+	return mark, nil
 }

@@ -135,6 +135,18 @@ func (e *Engine) CancelOrder(perp common.Address, id string) (*BookOrder, error)
 	return o, nil
 }
 
+// Order 查 perp 市场里 ID 为 id 的挂单（撤单鉴权要先知道 signer）。返回的指针只读，不要改。
+func (e *Engine) Order(perp common.Address, id string) (*BookOrder, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	book := e.books[perp]
+	if book == nil {
+		return nil, false
+	}
+	return book.Get(id)
+}
+
 // Snapshot 返回 perp 市场买卖两侧前 depth 档。
 func (e *Engine) Snapshot(perp common.Address, depth int) (bids, asks []Level, err error) {
 	e.mu.Lock()
